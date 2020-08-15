@@ -1,0 +1,5 @@
+music21
+numpy
+imutils
+opencv-python
+scipy

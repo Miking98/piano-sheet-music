@@ -1,4 +1,4 @@
-# Replace music21/stream/__init__.py with this file
+# /usr/local/lib/python3.7/site-packages/music21/stream
 #
 # -*- coding: utf-8 -*-
 # -----------------------------------------------------------------------------
@@ -9488,6 +9488,12 @@ class Stream(core.StreamCoreMixin, base.Music21Object):
         # TODO: Is this even necessary, we do insert the elements in sorted order
         # and the stream is empty at the start
         gapStream.sort()
+
+        ####
+        #### ________CHANGES TO FIX ISSUE OF TOO MANY PHANTOM RESTS BEING ADDED FOR EACH VOICE_______
+        #### ________CLUTTERING UP THE SCORE_______
+        ####
+        return None
 
         if not gapStream:
             return None

@@ -89,7 +89,7 @@ def map_keys_to_notes(notes, keys, first_note):
 	new_notes = notes.copy()
 	for i in range(keys.shape[0]):
 		current_note = first_note
-		octave = 0 if current_note != 'C' else 1
+		octave = 0 if not (current_note == 'C' or current_note == 'C#') else 1
 		for j in range(keys.shape[1]):
 			if keys[i,j] == 255:
 				# Highlighted pixel (white), so must be a note...
@@ -101,7 +101,37 @@ def map_keys_to_notes(notes, keys, first_note):
 					octave += 1 # Octaves increase at each "C"
 	return new_notes
 
-def pixels_to_notes(grey, trim_start, trim_end, first_white_note, first_black_note):
+def recenter_octaves(notes, total_note_counts):
+	#
+	# Recenter octaves around Middle C (C4)
+	#
+	new_notes = notes.copy()
+	new_total_note_counts = {}
+	# Get total number of C notes
+	num_Cs = len([ n for n in total_note_counts.keys() if n[0] == "C" and len(n) == 2])
+	# nth of C notes -> Middle C (C4)
+	middle_C = int(np.ceil(num_Cs / 2))
+	# Adjust 1st of C notes to proper octave, so that nth is Middle C
+	first_C_octave = 4 - middle_C + 1
+	# Adjust all notes
+	## "total_note_counts"
+	for key, val in total_note_counts.items():
+		if key == "None": 
+			new_total_note_counts[key] = val
+			continue
+		current_octave = int(key[-1])
+		adjusted_octave = current_octave + first_C_octave - 1
+		new_total_note_counts[key[:-1] + str(adjusted_octave)] = val
+	## "notes"
+	for i in range(new_notes.shape[0]):
+		for j in range(new_notes.shape[1]):
+			if new_notes[i,j] == "None": continue
+			current_octave = int(new_notes[i,j][-1])
+			adjusted_octave = current_octave + first_C_octave - 1
+			new_notes[i,j] = new_notes[i,j][:-1]+ str(adjusted_octave)
+	return new_notes, new_total_note_counts
+
+def pixels_to_notes(grey, trim_start, trim_end, first_white_note, first_black_note, animate = False):
 	# Map pixels -> black keys (do black first b/c easier to isolate than white keys)
 	_, black_keys = cv2.threshold(grey, 225, 255, cv2.THRESH_BINARY_INV)
 	## Fill in black keys
@@ -109,66 +139,83 @@ def pixels_to_notes(grey, trim_start, trim_end, first_white_note, first_black_no
 	black_keys[black_keys.shape[0]*3//4:,:] = 0 # Bottom 1/4 of keys must not be black keys
 
 	# Map pixels -> white keys
-	## Find distance between each white key
-	_, white_keys = cv2.threshold(grey[grey.shape[0]*4//5], 220, 255, cv2.THRESH_BINARY)
-	white_start = None
-	white_length, white_lengths = 0, [] # Track length of white keys
-	white_sep_length, white_sep_lengths = 0, [] # Track length of black space between white keys
-	for pixel in white_keys.flatten():
-		if pixel == 255:
-			white_length += 1
-			if white_sep_length > 0:
-				white_sep_lengths.append(white_sep_length)
-				white_sep_length = 0
-			if white_start == None: white_start = pixel
-		else:
-			white_sep_length += 1
-			if white_length > 0:
-				white_lengths.append(white_length)
-				white_length = 0
-	white_key_dist = np.bincount(white_lengths).argmax()
-	white_sep_dist = np.bincount(white_sep_lengths).argmax()
-	### Add lines to inverted black_keys
-	white_keys = cv2.bitwise_not(black_keys)
-	for i in range(0, white_keys.shape[1], white_key_dist + white_sep_dist):
-		white_keys[:, i] = 0
+	_, black_marks = cv2.threshold(grey, 225, 255, cv2.THRESH_BINARY_INV)
+	## Only keep black-marks that touch top of piano (otherwise might be artifacts or marks on keys that we should ignore)
+	for col in range(black_marks.shape[1]):
+		## Start from top of keyboard, and go down until hit a black pixel -- zero out everything else
+		column = black_marks[:,col]
+		for pixel_idx, pixel in enumerate(column):
+			if pixel != 255:
+				# Found black pixel, zero out everything below this pixel
+				black_marks[pixel_idx:,col] = 0
+				break
+	white_keys = cv2.bitwise_not(black_marks)
+	if animate:
+		show_frames([white_keys, black_keys], "WHITE | BLACK")
 
 	#  Map keys -> notes
 	notes = np.full((trim_end - trim_start, grey.shape[1]), None).astype("<U4")
+	## Get letter for each black/white key
 	notes = map_keys_to_notes(notes, black_keys[trim_start:trim_end], first_black_note)
 	notes = map_keys_to_notes(notes, white_keys[trim_start:trim_end], first_white_note)
+	## Get count of each note
 	unique, counts = np.unique(notes, return_counts=True)
 	total_note_counts = dict(zip(unique, counts))
 	total_note_counts['None'] = np.inf # Add "None" for corner cases
-	
-	# Noise reduction 
+	## Noise reduction 
 	black_note_max_count = np.max([ val for key, val in total_note_counts.items() if '#' in key])
 	white_note_max_count = np.max([ val for key, val in total_note_counts.items() if '#' not in key])
 	## Filter out notes with low counts
 	for key, val in list(total_note_counts.items()):
 		if '#' in key and val < black_note_max_count //2: total_note_counts.pop(key, None)
 		if '#' not in key and val < white_note_max_count //2: total_note_counts.pop(key, None)
-	
+	## Recenter around Middle C
+	notes, total_note_counts = recenter_octaves(notes, total_note_counts)
+
 	return notes, total_note_counts
 
+def mark_pixels_by_closest_color(frame, color1, color2):
+	color1_dists = np.linalg.norm(frame - color1, axis = 2)
+	color2_dists = np.linalg.norm(frame - color2, axis = 2)
+	color1_notes = color1_dists < color2_dists
+	color2_notes = color1_dists >= color2_dists
+	return color1_notes, color2_notes
+
 def pressed_keys_to_notes(notes, frame, animate = False):
-	# Get all black/white pixels (greyscale means R = G + B)
+	# 1. Zero out all unpressed keys 
+	## Black/white keys will be greyscale, so R = G + B
 	unpressed_pixels = frame.max(axis = 2) - frame.min(axis = 2) < 40
-	# "colored_pixels" is an array the same size as frame, but with all grey pixels -> black and colored -> white
-	colored_pixels = np.full(frame.shape[:2], 1).astype(np.uint8)
-	colored_pixels[ unpressed_pixels ] = 0
-	# Count up notes coresponding to each pixel that was pressed
-	colored_notes = notes.copy()
-	colored_notes[colored_pixels == 0] = None
-	unique, counts = np.unique(colored_notes, return_counts=True)
-	note_counts = dict(zip(unique, counts))
-	# For visual display
+	# new_frame_colored = frame.copy() # Only pressed keys are not zero'd out
+	# new_frame_colored[ unpressed_pixels ] = [0,0,0] # Set R to 1 so that np.argmax() doesn't break ties with Blue in BGR
+	# # 2. Mark blue and green pressed keys (blue -> left hand, green -> right hand)
+	# lh_pixels = np.argmax(new_frame_colored, axis = 2) == 0 # BGR, B = index 0
+	# rh_pixels = np.argmax(new_frame_colored, axis = 2) == 1 # BGR, G = index 1
+	# 3. Count up pressed notes corresponding to each hand
+
+	lh_pixels, rh_pixels = mark_pixels_by_closest_color(frame.copy(), [1, 0, 0], [0, 1, 0])
+
+	## Blue
+	lh_notes = notes.copy()
+	lh_notes[lh_pixels == False] = None
+	lh_notes[unpressed_pixels] = None
+	lh_unique, lh_counts = np.unique(lh_notes, return_counts = True)
+	lh_counts = dict(zip(lh_unique, lh_counts))
+	## Green
+	rh_notes = notes.copy()
+	rh_notes[rh_pixels == False] = None
+	rh_notes[unpressed_pixels] = None
+	rh_unique, rh_counts = np.unique(rh_notes, return_counts = True)
+	rh_counts = dict(zip(rh_unique, rh_counts))
+	# 4. For visual display
 	if animate:
-		only_colored_pixels = np.full(frame.shape, 255).astype(np.uint8)
-		only_colored_pixels[ unpressed_pixels ] = [0, 0, 0]
-		cv2.imshow("Keys to Notes", only_colored_pixels)
-		cv2.waitKey(0)
-	return note_counts
+		lh_keys = np.full(frame.shape, 255).astype(np.uint8)
+		lh_keys[lh_pixels == False] = [0,0,0]
+		lh_keys[unpressed_pixels] = [0,0,0]
+		rh_keys = np.full(frame.shape, 255).astype(np.uint8)
+		rh_keys[rh_pixels == False] = [0,0,0]
+		rh_keys[unpressed_pixels] = [0,0,0]
+		show_frames([frame, lh_keys, rh_keys], 'Frame | LH Keys | RH Keys')
+	return lh_counts, rh_counts
 
 def predict_pressed_notes(note_counts, total_note_counts, note_threshold = 0.8):
 	# Calculate what percent of a note's pixels were hit
@@ -178,55 +225,21 @@ def predict_pressed_notes(note_counts, total_note_counts, note_threshold = 0.8):
 	notes_hit = [ k for k, v in percent_of_notes_hit.items() if v > note_threshold ]
 	return notes_hit
 
-def show_frame(frame):
-	cv2.imshow('frame', frame)
+def show_frames(frames, title = 'Title'):
+	cv2.imshow(title, np.vstack(frames))
 	cv2.waitKey(0)
 
-def detect_keyboard(edges, template_edges, last_val, animate = False):
-	# Detects if a keyboard is present in this frame's edges
-	## Loop over the scales of the image (start with 100%)...
-	found = None
-	for scale in np.linspace(0.2, 1.0, 5)[::-1]:
-		## Resize the image according to the scale, and keep track
-		## ...of the ratio of the resizing
-		resized = imutils.resize(edges, width = int(edges.shape[1] * scale))
-		r = edges.shape[1] / float(resized.shape[1])
-		## If the resized image is smaller than the template, then break
-		## ...from the loop
-		if resized.shape[0] < template_edges.shape[0] or resized.shape[1] < template_edges.shape[1]:
-			break
-		# Detect edges in the resized, grayscale image and apply template
-		# ...matching to find the template in the image
-		result = cv2.matchTemplate(resized, template_edges, cv2.TM_CCORR_NORMED)
-		(_, maxVal, _, maxLoc) = cv2.minMaxLoc(result)
-		# If we have found a new maximum correlation value, then update
-		# the bookkeeping variable
-		if found is None or maxVal > found[0]:
-			found = (maxVal, maxLoc, r)
-	# Unpack the bookkeeping variable and compute the (x, y) coordinates
-	# ...of the bounding box based on the resized ratio
-	(maxVal, maxLoc, r) = found
-	(startX, startY) = (int(maxLoc[0] * r), int(maxLoc[1] * r))
-	(endX, endY) = (int((maxLoc[0] + template_edges.shape[0]) * r), int((maxLoc[1] + template_edges.shape[1]) * r))
-	# Draw a bounding box around the detected result and display the image
-	if True or animate:
-		clone = np.dstack([edges, edges, edges])
-		cv2.rectangle(clone, (startX, startY), (endX, endY), (0, 0, 255), 2)
-		print(maxVal, (startX, startY, endX, endY), r)
-		show_frame(clone)
-	return ((maxVal > 0.995) or (maxVal > 0.9 and maxVal == last_val), maxVal)
+def show_frame(frame, title = 'frame'):
+	cv2.imshow(title, frame)
+	cv2.waitKey(0)
 
-def synthesia_to_notes(fvs, template_img, first_white_note = 'A', first_black_note = 'A#', animate = False, logging = False):
+def synthesia_to_notes(fvs, first_white_note = 'A', first_black_note = 'A#', animate = False, logging = False):
 	#
-	# NOTE: This ignores "template_img" for now and assumes video starts with keyboard showing
+	# Converts Synthesia video that starts with keyboard showing to Song
 	#
-	NOTE_THRESHOLD = 0.8 # Percent of note's pixels that must be hit to "count"
-	song = [] # List of notes hit at every frame
+	NOTE_THRESHOLD = 0.6 # Percent of note's pixels that must be hit to "count"
+	lh_song, rh_song = [], [] # List of notes hit at every frame for each hand
 	firstLoop = True
-	tracker = []
-	# Get template image (for matching to keyboard)
-	template_edges = cv2.cvtColor(cv2.imread(template_img), cv2.COLOR_BGR2GRAY)
-	template_max_val = 0
 	first_note_found = False
 	while not fvs.stopped:
 		orig_frame = fvs.read()
@@ -244,12 +257,7 @@ def synthesia_to_notes(fvs, template_img, first_white_note = 'A', first_black_no
 				white_keys = cv2.bitwise_not(black_keys)
 				edges = cv2.Canny(white_keys, 100, 200)
 				piano_top_y = np.min(np.argmax(edges, axis = 0) + 10)
-				piano_bottom_y = np.max(np.argmax(edges, axis = 0) - 10)
-				## Ignore this frame if keyboard hasn't appeared yet (e.g. title screen or fade in)
-				# (is_keyboard_present, template_max_val) = detect_keyboard(edges, template_edges, 
-				# 											template_max_val, animate = False)
-				# if not is_keyboard_present:	
-				# 	continue
+				piano_bottom_y = np.max(np.argmin(edges, axis = 0) - 10)
 			# Trim frame to top of keyboard
 			cut_frame = frame[piano_top_y:piano_bottom_y]
 			cut_grey = grey[piano_top_y:piano_bottom_y]
@@ -262,29 +270,36 @@ def synthesia_to_notes(fvs, template_img, first_white_note = 'A', first_black_no
 			# Map pixels -> notes (only need to do this once)
 			if firstLoop:
 				if logging: print(" - Keyboard first detected @ frame:", fvs.frames_returned)
-				notes, total_note_counts = pixels_to_notes(cut_grey, trim_start, trim_end, first_white_note, first_black_note)
+				notes, total_note_counts = pixels_to_notes(cut_grey, trim_start, trim_end, first_white_note, first_black_note, animate = animate)
 				firstLoop = False
 
-			# Map pressed keys -> notes
-			note_counts = pressed_keys_to_notes(notes, trim_frame)
+			if fvs.frames_returned < 15:
+				continue
+			# Map pressed keys -> notes for left/right hands
+			lh_counts, rh_counts = pressed_keys_to_notes(notes, trim_frame, animate = animate)
 			# Map pressed notes -> overall estimate of pressed notes
-			notes_hit = predict_pressed_notes(note_counts, total_note_counts, note_threshold = NOTE_THRESHOLD)
+			lh_notes_hit = predict_pressed_notes(lh_counts, total_note_counts, note_threshold = NOTE_THRESHOLD)
+			rh_notes_hit = predict_pressed_notes(rh_counts, total_note_counts, note_threshold = NOTE_THRESHOLD)
 			## Append notes to overall song
-			song.append(notes_hit)
+			rh_song.append(rh_notes_hit)
+			lh_song.append(lh_notes_hit)
 
 			# Logging/Animating
 			## Display the frame
 			if animate:
 				show_frame(frame)
+				print(lh_notes_hit, "|", rh_notes_hit)
 			## Logging
-			if len(notes_hit) > 0 and first_note_found is False: 
+			if len(lh_notes_hit + rh_notes_hit) > 0 and first_note_found is False: 
 				if logging: print(" - Note first detected @ frame:", fvs.frames_returned)
 				first_note_found = True
 			if fvs.frames_returned % 1000 == 0:
 				if logging: print("    * Done processing frame", fvs.frames_returned)
 		except Exception as e:
+			import traceback
 			print("Error on frame:", fvs.frames_returned, str(e))
+			traceback.print_exc()
 			continue
 	if animate:
 		cv2.destroyAllWindows()
-	return song
+	return lh_song, rh_song
