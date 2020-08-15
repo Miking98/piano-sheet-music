@@ -6,23 +6,25 @@ Synthesia `.mp4`            | to | MuseScore `.xml`
 :-------------------------:|:-:|:-------------------------:
 ![Synthesia](imgs/synthesia.png "Synthesia") | => | ![MuseScore](imgs/musescore.png "Musescore")
 
-## How to Run
+# How to Run
 
 `python3 script.py name_of_mp4_in_same_directory`
+
+## Command Line Arguments
+
+For a detailed list of options:
+
+`python3 script.py -h`
+
+**NOTE:** The `.mp4` file must be trimmed such that the keyboard is clearly visible in the first frame of the video.
+
+# Additional Info
 
 ## Bug Fix for Music21
 
 Music21, the library used to generate the `.xml` file, sometimes adds unnecessary rests.
 
 To fix this issue, replace `/usr/local/lib/python3.x/site-packages/music21/stream/__init__.py` with the `__init__.py` in this repository. Replace `x` with your version of Python 3. (This is optional, but makes the output easier to read)
-
-## Additional Info
-
-For detailed list of options:
-
-`python3 script.py -h`
-
-**NOTE:** The `.mp4` file must be trimmed such that the keyboard is clearly visible in the first frame of the video.
 
 ## Areas for Improvement
 
