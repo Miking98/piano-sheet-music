@@ -9461,15 +9461,14 @@ class Stream(core.StreamCoreMixin, base.Music21Object):
         if self.isSorted is False and self.autoSort:
             self.sort()
 
-        sortedElements = self.elements
-
-        gapStream = self.cloneEmpty(derivationMethod='findGaps')
-
-        highestCurrentEndTime = 0.0
 
         ####
         #### ________CHANGES TO FIX REST ISSUE_______
         ####
+        sortedElements = self.elements
+        gapStream = self.cloneEmpty(derivationMethod='findGaps')
+        highestCurrentEndTime = 0.0
+
         sortedElements = sorted(self._offsetDict.values(), key = lambda x: x[0])
 
         for offset, e in sortedElements:

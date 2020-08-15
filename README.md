@@ -10,6 +10,12 @@ Synthesia `.mp4`            | to | MuseScore `.xml`
 
 `python3 script.py name_of_mp4_in_same_directory`
 
+## Bug Fix for Music21
+
+Music21, the library used to generate the `.xml` file, sometimes adds unnecessary rests.
+
+To fix this issue, replace `/usr/local/lib/python3.x/site-packages/music21/stream/__init__.py` with the `__init__.py` in this repository. Replace `x` with your version of Python 3. (This is optional, but makes the output easier to read)
+
 ## Additional Info
 
 For detailed list of options:
