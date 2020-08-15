@@ -135,7 +135,6 @@ def song_to_m21(lh_song, rh_song):
 	## Remove noisy artifacts
 	time_steps = remove_time_step_noise(time_steps)
 	## Convert # of frames pressed -> M21 Durations for each note
-	print(time_steps)
 	frames_per_16th = get_frames_per_16th(time_steps)
 
 	# 2. Set-up Music21 stream

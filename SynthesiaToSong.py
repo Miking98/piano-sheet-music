@@ -181,7 +181,7 @@ def mark_pixels_by_closest_color(frame, color1, color2):
 	color2_notes = color1_dists >= color2_dists
 	return color1_notes, color2_notes
 
-def pressed_keys_to_notes(notes, frame, animate = False):
+def pressed_keys_to_notes(notes, frame, lh_bgr, rh_bgr, animate = False):
 	# 1. Zero out all unpressed keys 
 	## Black/white keys will be greyscale, so R = G + B
 	unpressed_pixels = frame.max(axis = 2) - frame.min(axis = 2) < 40
@@ -192,7 +192,7 @@ def pressed_keys_to_notes(notes, frame, animate = False):
 	# rh_pixels = np.argmax(new_frame_colored, axis = 2) == 1 # BGR, G = index 1
 	# 3. Count up pressed notes corresponding to each hand
 
-	lh_pixels, rh_pixels = mark_pixels_by_closest_color(frame.copy(), [1, 0, 0], [0, 1, 0])
+	lh_pixels, rh_pixels = mark_pixels_by_closest_color(frame.copy(), lh_bgr, rh_bgr)
 
 	## Blue
 	lh_notes = notes.copy()
@@ -233,7 +233,7 @@ def show_frame(frame, title = 'frame'):
 	cv2.imshow(title, frame)
 	cv2.waitKey(0)
 
-def synthesia_to_notes(fvs, first_white_note = 'A', first_black_note = 'A#', animate = False, logging = False):
+def synthesia_to_notes(fvs, first_white_note = 'A', first_black_note = 'A#', lh_bgr = [1, 0, 0], rh_bgr = [0, 1, 0], animate = False, logging = False):
 	#
 	# Converts Synthesia video that starts with keyboard showing to Song
 	#
@@ -276,7 +276,7 @@ def synthesia_to_notes(fvs, first_white_note = 'A', first_black_note = 'A#', ani
 			if fvs.frames_returned < 15:
 				continue
 			# Map pressed keys -> notes for left/right hands
-			lh_counts, rh_counts = pressed_keys_to_notes(notes, trim_frame, animate = animate)
+			lh_counts, rh_counts = pressed_keys_to_notes(notes, trim_frame, lh_bgr if lh_bgr else [1, 0, 0], rh_bgr if rh_bgr else [0, 1, 0], animate = animate)
 			# Map pressed notes -> overall estimate of pressed notes
 			lh_notes_hit = predict_pressed_notes(lh_counts, total_note_counts, note_threshold = NOTE_THRESHOLD)
 			rh_notes_hit = predict_pressed_notes(rh_counts, total_note_counts, note_threshold = NOTE_THRESHOLD)
